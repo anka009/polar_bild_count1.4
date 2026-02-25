@@ -38,6 +38,59 @@ uploaded = st.sidebar.file_uploader(
     type=["tif", "tiff", "png", "jpg"],
     accept_multiple_files=True
 )
+roi_mask = select_polygon_roi(img)
+roi_img = cv2.bitwise_and(img, img, mask=roi_mask)
+
+# --- Polygon-ROI Auswahl ---
+roi_points = []
+drawing = False
+
+def mouse_callback(event, x, y, flags, param):
+    global roi_points
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        roi_points.append((x, y))
+
+    if event == cv2.EVENT_RBUTTONDOWN:
+        if roi_points:
+            roi_points.pop()
+
+def select_polygon_roi(image):
+    global roi_points
+    roi_points = []
+
+    temp = image.copy()
+    cv2.namedWindow("ROI Auswahl")
+    cv2.setMouseCallback("ROI Auswahl", mouse_callback)
+
+    while True:
+        display = temp.copy()
+
+        # Punkte zeichnen
+        for p in roi_points:
+            cv2.circle(display, p, 3, (0, 255, 0), -1)
+
+        # Linien zeichnen
+        if len(roi_points) > 1:
+            cv2.polylines(display, [np.array(roi_points)], False, (0, 255, 0), 2)
+
+        cv2.imshow("ROI Auswahl", display)
+        key = cv2.waitKey(10)
+
+        if key == 13:  # ENTER
+            break
+        if key == 27:  # ESC
+            roi_points = []
+            break
+
+    cv2.destroyWindow("ROI Auswahl")
+
+    # Maske erzeugen
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    if len(roi_points) >= 3:
+        cv2.fillPoly(mask, [np.array(roi_points, dtype=np.int32)], 255)
+
+    return mask
 
 # -------------------------
 # Analysis
