@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from skimage.measure import label, regionprops
+from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(page_title="PSR Matrix Organization Quantifier", layout="wide")
 st.title("📊 PSR Matrix Organization & Maturation Quantifier")
@@ -38,67 +39,47 @@ uploaded = st.sidebar.file_uploader(
     type=["tif", "tiff", "png", "jpg"],
     accept_multiple_files=True
 )
-roi_mask = select_polygon_roi(img)
-roi_img = cv2.bitwise_and(img, img, mask=roi_mask)
 
-# --- Polygon-ROI Auswahl ---
-roi_points = []
-drawing = False
+# -------------------------
+# ROI selection (Streamlit canvas)
+# -------------------------
+def draw_polygon_roi(image_rgb):
+    st.subheader("ROI selection")
 
-def mouse_callback(event, x, y, flags, param):
-    global roi_points
+    st.write("Draw a polygon ROI (double-click to close).")
 
-    if event == cv2.EVENT_LBUTTONDOWN:
-        roi_points.append((x, y))
+    canvas = st_canvas(
+        fill_color="rgba(255, 0, 0, 0.3)",
+        stroke_width=2,
+        stroke_color="#00FF00",
+        background_image=image_rgb,
+        update_streamlit=True,
+        height=image_rgb.shape[0],
+        width=image_rgb.shape[1],
+        drawing_mode="polygon",
+        key="roi_canvas",
+    )
 
-    if event == cv2.EVENT_RBUTTONDOWN:
-        if roi_points:
-            roi_points.pop()
+    if canvas.json_data is None or len(canvas.json_data["objects"]) == 0:
+        return None
 
-def select_polygon_roi(image):
-    global roi_points
-    roi_points = []
+    try:
+        obj = canvas.json_data["objects"][0]
+        points = [(p["x"], p["y"]) for p in obj["path"][:-1]]
+    except:
+        return None
 
-    temp = image.copy()
-    cv2.namedWindow("ROI Auswahl")
-    cv2.setMouseCallback("ROI Auswahl", mouse_callback)
-
-    while True:
-        display = temp.copy()
-
-        # Punkte zeichnen
-        for p in roi_points:
-            cv2.circle(display, p, 3, (0, 255, 0), -1)
-
-        # Linien zeichnen
-        if len(roi_points) > 1:
-            cv2.polylines(display, [np.array(roi_points)], False, (0, 255, 0), 2)
-
-        cv2.imshow("ROI Auswahl", display)
-        key = cv2.waitKey(10)
-
-        if key == 13:  # ENTER
-            break
-        if key == 27:  # ESC
-            roi_points = []
-            break
-
-    cv2.destroyWindow("ROI Auswahl")
-
-    # Maske erzeugen
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    if len(roi_points) >= 3:
-        cv2.fillPoly(mask, [np.array(roi_points, dtype=np.int32)], 255)
+    mask = np.zeros(image_rgb.shape[:2], dtype=np.uint8)
+    if len(points) >= 3:
+        cv2.fillPoly(mask, [np.array(points, dtype=np.int32)], 255)
 
     return mask
+
 
 # -------------------------
 # Analysis
 # -------------------------
-def analyze_image(file):
-    data = np.asarray(bytearray(file.read()), dtype=np.uint8)
-    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+def analyze_image(img_rgb, roi_mask):
     hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
     h, s, v = hsv[:,:,0], hsv[:,:,1], hsv[:,:,2]
 
@@ -127,6 +108,9 @@ def analyze_image(file):
 
     cm = final_mask.astype(bool)
 
+    # Apply ROI
+    cm = cm & (roi_mask > 0)
+
     # Hue classification
     red = (((h <= red_max) | (h >= 170)) & cm)
     orange = ((h >= orange_low) & (h <= orange_high) & cm)
@@ -145,7 +129,6 @@ def analyze_image(file):
         eff_green = green_px + w * orange_px
         ratios[f"RG_ratio_w{w}"] = eff_red / (eff_green + 1e-6)
 
-    # Main index (0.5 weighting)
     maturation_index = ratios["RG_ratio_w0.5"]
 
     overlay = img_rgb.copy()
@@ -154,7 +137,6 @@ def analyze_image(file):
     overlay[green] = [0,255,0]
 
     return {
-        "Image": file.name,
         "Matrix maturation index (RG 0.5)": maturation_index,
         "RG ratio (w=0.3)": ratios["RG_ratio_w0.3"],
         "RG ratio (w=0.7)": ratios["RG_ratio_w0.7"],
@@ -165,14 +147,29 @@ def analyze_image(file):
         "overlay": overlay
     }
 
+
 # -------------------------
 # Main
 # -------------------------
 if uploaded:
     results = []
+
     for f in uploaded:
         f.seek(0)
-        results.append(analyze_image(f))
+        data = np.asarray(bytearray(f.read()), dtype=np.uint8)
+        img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        st.markdown(f"## ROI for: **{f.name}**")
+        roi_mask = draw_polygon_roi(img_rgb)
+
+        if roi_mask is None:
+            st.warning("Draw an ROI to continue.")
+            st.stop()
+
+        result = analyze_image(img_rgb, roi_mask)
+        result["Image"] = f.name
+        results.append(result)
 
     df = pd.DataFrame(results).drop(columns=["overlay"])
     st.subheader("📄 Quantitative results (reviewer-safe)")
