@@ -44,8 +44,22 @@ uploaded = st.sidebar.file_uploader(
 # ROI selection (Streamlit canvas)
 # -------------------------
 from PIL import Image
+import numpy as np
 
 def draw_polygon_roi(img_rgb):
+
+    # Ensure uint8
+    if img_rgb.dtype != np.uint8:
+        img_rgb = img_rgb.astype(np.uint8)
+
+    # Ensure RGB
+    if img_rgb.ndim == 2:
+        img_rgb = np.stack([img_rgb]*3, axis=-1)
+
+    if img_rgb.shape[2] == 4:
+        img_rgb = img_rgb[:, :, :3]
+
+    # Convert to PIL
     img_pil = Image.fromarray(img_rgb)
 
     canvas = st_canvas(
