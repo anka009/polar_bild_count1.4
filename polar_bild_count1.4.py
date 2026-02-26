@@ -43,22 +43,24 @@ uploaded = st.sidebar.file_uploader(
 # -------------------------
 # ROI selection (Streamlit canvas)
 # -------------------------
-def draw_polygon_roi(image_rgb):
-    st.subheader("ROI selection")
+from PIL import Image
 
-    st.write("Draw a polygon ROI (double-click to close).")
+def draw_polygon_roi(img_rgb):
+    img_pil = Image.fromarray(img_rgb)
 
     canvas = st_canvas(
         fill_color="rgba(255, 0, 0, 0.3)",
         stroke_width=2,
-        stroke_color="#00FF00",
-        background_image=image_rgb,
+        stroke_color="#FF0000",
+        background_image=img_pil,
         update_streamlit=True,
-        height=image_rgb.shape[0],
-        width=image_rgb.shape[1],
+        height=img_rgb.shape[0],
+        width=img_rgb.shape[1],
         drawing_mode="polygon",
         key="roi_canvas",
     )
+
+    return canvas
 
     if canvas.json_data is None or len(canvas.json_data["objects"]) == 0:
         return None
